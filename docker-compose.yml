@@ -1,0 +1,87 @@
+version: "3.9"
+
+services:
+  django:
+    container_name: django
+    build: ./drf_api/.
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./drf_api/.env.development
+    volumes:
+      - ./drf_api:/home/app/api/
+      - static_volume:/usr/share/nginx/html/static # <-- bind the static volume
+    stdin_open: true
+    tty: true
+    command: gunicorn --bind :8000 drf_api.wsgi:application
+    networks:
+      - backend_network
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+    depends_on:
+      - db
+
+  db:
+    container_name: mysql_db
+    build: ./mysql
+    command: mysqld --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD_FILE: /run/secrets/db_root_password # rootのパスワード
+      MYSQL_DATABASE: django # djangoが使用するDB
+      MYSQL_USER: user # djangoが使用するユーザー
+      MYSQL_PASSWORD_FILE: /run/secrets/db_password # MYSQL_USERのパスワード
+      TZ: "Asia/Tokyo"
+    secrets:
+      - db_password
+      - db_root_password
+    volumes:
+      - ./mysql/mysql_volume:/var/lib/mysql
+      - ./mysql/sql:/docker-entrypoint-initdb.d
+      - ./logs/mysql:/var/log/mysql
+    networks:
+      - backend_network
+
+  react:
+    container_name: react
+    image: node:14.13.1
+    volumes:
+      - ./react_front:/home/app/front
+    ports:
+      - 3000:3000
+    working_dir: /home/app/front
+    command: [bash, -c, npm upgrade --no-progress --network-timeout 1000000 && npm start]
+    networks:
+      - frontend_network
+
+  nginx:
+    container_name: nginx
+    build:
+      context: ./nginx/.
+      dockerfile: Dockerfile
+    volumes:
+      - static_volume:/usr/share/nginx/html/static # <-- bind the static volume
+    ports:
+      - "80:80"
+    depends_on:
+      - django
+      - react
+    networks:
+      - backend_network
+      - frontend_network
+
+networks:
+  backend_network:
+    driver: bridge
+  frontend_network:
+    driver: bridge
+volumes:
+  static_volume:
+
+# 機密情報ファイルをイメージへコピー
+secrets:
+  db_password:
+    file: ./mysql/secrets/user_secret.txt
+  db_root_password:
+    file: ./mysql/secrets/root_secret.txt

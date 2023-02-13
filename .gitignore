@@ -1,0 +1,6 @@
+logs/*
+*.drawio
+*.sqlite3
+
+mysql/mysql_volume/*
+drf_api/static
